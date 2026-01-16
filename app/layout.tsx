@@ -8,8 +8,15 @@ export const metadata: Metadata = {
   title: 'BestBasket - Smart Grocery Shopping',
   description: 'Find the best supermarkets for your grocery list based on price, quality, and proximity',
   manifest: '/manifest.json',
-  themeColor: '#0ea5e9',
-  viewport: 'width=device-width, initial-scale=1, maximum-scale=1',
+}
+
+export function generateViewport() {
+  return {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    themeColor: '#0ea5e9',
+  }
 }
 
 export default function RootLayout({
@@ -21,7 +28,6 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#0ea5e9" />
       </head>
       <body className={inter.className}>{children}</body>
     </html>

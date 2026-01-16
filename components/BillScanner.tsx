@@ -11,6 +11,58 @@ export default function BillScanner() {
   const [extractedData, setExtractedData] = useState<any>(null)
   const [progress, setProgress] = useState(0)
 
+  const extractStoreName = (text: string): string => {
+    // Simple extraction - look for common store name patterns
+    const storePatterns = [
+      /(?:store|market|grocer|supermarket|mart)[:\s]+([A-Z][A-Za-z\s]+)/i,
+      /^([A-Z][A-Za-z\s&]+)\s*(?:receipt|invoice|bill)/i,
+    ]
+    
+    for (const pattern of storePatterns) {
+      const match = text.match(pattern)
+      if (match) return match[1].trim()
+    }
+    
+    return 'Unknown Store'
+  }
+
+  const extractDate = (text: string): string => {
+    const datePattern = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/
+    const match = text.match(datePattern)
+    return match ? match[0] : 'Unknown Date'
+  }
+
+  const parseBillText = useCallback((text: string) => {
+    // Simple parsing logic - in production, use more sophisticated NLP
+    const lines = text.split('\n').filter(line => line.trim())
+    const items: Array<{name: string, price: number, quantity?: number}> = []
+    
+    // Look for price patterns
+    const pricePattern = /\$?(\d+\.\d{2})/
+    
+    lines.forEach((line, index) => {
+      const priceMatch = line.match(pricePattern)
+      if (priceMatch) {
+        const price = parseFloat(priceMatch[1])
+        // Assume the text before the price is the item name
+        const itemName = line.substring(0, priceMatch.index).trim()
+        if (itemName && price > 0 && price < 1000) {
+          items.push({
+            name: itemName,
+            price: price,
+          })
+        }
+      }
+    })
+
+    return {
+      items,
+      total: items.reduce((sum, item) => sum + item.price, 0),
+      store: extractStoreName(text),
+      date: extractDate(text),
+    }
+  }, [])
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return
 
@@ -42,7 +94,7 @@ export default function BillScanner() {
       setUploading(false)
       setProgress(0)
     }
-  }, [])
+  }, [parseBillText])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -53,64 +105,12 @@ export default function BillScanner() {
     maxFiles: 1,
   })
 
-  const parseBillText = (text: string) => {
-    // Simple parsing logic - in production, use more sophisticated NLP
-    const lines = text.split('\n').filter(line => line.trim())
-    const items: Array<{name: string, price: number, quantity?: number}> = []
-    
-    // Look for price patterns
-    const pricePattern = /\$?(\d+\.\d{2})/
-    
-    lines.forEach((line, index) => {
-      const priceMatch = line.match(pricePattern)
-      if (priceMatch) {
-        const price = parseFloat(priceMatch[1])
-        // Assume the text before the price is the item name
-        const itemName = line.substring(0, priceMatch.index).trim()
-        if (itemName && price > 0 && price < 1000) {
-          items.push({
-            name: itemName,
-            price: price,
-          })
-        }
-      }
-    })
-
-    return {
-      items,
-      total: items.reduce((sum, item) => sum + item.price, 0),
-      store: extractStoreName(text),
-      date: extractDate(text),
-    }
-  }
-
-  const extractStoreName = (text: string): string => {
-    // Simple extraction - look for common store name patterns
-    const storePatterns = [
-      /(?:store|market|grocer|supermarket|mart)[:\s]+([A-Z][A-Za-z\s]+)/i,
-      /^([A-Z][A-Za-z\s&]+)\s*(?:receipt|invoice|bill)/i,
-    ]
-    
-    for (const pattern of storePatterns) {
-      const match = text.match(pattern)
-      if (match) return match[1].trim()
-    }
-    
-    return 'Unknown Store'
-  }
-
-  const extractDate = (text: string): string => {
-    const datePattern = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/
-    const match = text.match(datePattern)
-    return match ? match[0] : 'Unknown Date'
-  }
-
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-white rounded-xl shadow-lg p-6">
         <h2 className="text-3xl font-bold text-gray-800 mb-6">Scan Your Receipt</h2>
         <p className="text-gray-600 mb-6">
-          Upload a photo or PDF of your grocery receipt. We'll extract the items and prices
+          Upload a photo or PDF of your grocery receipt. We&apos;ll extract the items and prices
           to improve our recommendations for you and other users.
         </p>
 

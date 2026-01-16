@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { MapPin, Clock, DollarSign, Star, TrendingUp } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -55,7 +55,7 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
     }
   }, [])
 
-  const calculateRecommendations = async () => {
+  const calculateRecommendations = useCallback(async () => {
     if (groceryList.length === 0) {
       alert('Please add items to your grocery list first!')
       return
@@ -118,13 +118,13 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
       setStores(mockStores)
       setLoading(false)
     }, 1500)
-  }
+  }, [groceryList])
 
   useEffect(() => {
     if (groceryList.length > 0 && userLocation) {
       calculateRecommendations()
     }
-  }, [groceryList, userLocation, preferences])
+  }, [groceryList, userLocation, preferences, calculateRecommendations])
 
   return (
     <div className="max-w-6xl mx-auto">
