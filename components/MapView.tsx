@@ -69,9 +69,21 @@ function FitBounds({ stores, userLocation }: { stores: Store[]; userLocation: { 
       [userLocation.lat, userLocation.lng],
     ])
 
-    stores.forEach(store => {
-      const lat = store.latitude || userLocation.lat + (Math.random() - 0.5) * 0.1
-      const lng = store.longitude || userLocation.lng + (Math.random() - 0.5) * 0.1
+    stores.forEach((store, index) => {
+      let lat: number
+      let lng: number
+      
+      if (store.latitude && store.longitude) {
+        lat = store.latitude
+        lng = store.longitude
+      } else {
+        // Calculate based on distance
+        const distanceInDegrees = store.distance / 111
+        const angle = (index * 90) * (Math.PI / 180)
+        lat = userLocation.lat + distanceInDegrees * Math.cos(angle)
+        lng = userLocation.lng + distanceInDegrees * Math.sin(angle)
+      }
+      
       bounds.extend([lat, lng])
     })
 
@@ -125,9 +137,25 @@ export default function MapView({ stores, userLocation, currencySymbol, onStoreC
         </Marker>
 
         {/* Store markers */}
-        {stores.map((store, index) => {
-          const lat = store.latitude || userLocation.lat + (Math.random() - 0.5) * 0.1
-          const lng = store.longitude || userLocation.lng + (Math.random() - 0.5) * 0.1
+        {stores.length > 0 && stores.map((store, index) => {
+          // Ensure we always have valid coordinates
+          let lat: number
+          let lng: number
+          
+          if (store.latitude && store.longitude) {
+            // Use provided coordinates
+            lat = store.latitude
+            lng = store.longitude
+          } else {
+            // Calculate based on distance and direction from user location
+            // Convert distance (km) to degrees (roughly 111 km per degree)
+            const distanceInDegrees = store.distance / 111
+            // Distribute stores in different directions
+            const angle = (index * 90) * (Math.PI / 180) // 0°, 90°, 180°, 270°
+            lat = userLocation.lat + distanceInDegrees * Math.cos(angle)
+            lng = userLocation.lng + distanceInDegrees * Math.sin(angle)
+          }
+          
           const isBest = index === 0
 
           return (
@@ -160,6 +188,9 @@ export default function MapView({ stores, userLocation, currencySymbol, onStoreC
                   </p>
                   <p className={`text-xs mt-2 ${store.isOpen ? 'text-green-600' : 'text-red-600'}`}>
                     {store.isOpen ? '● OPEN' : '● CLOSED'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    📍 {lat.toFixed(4)}, {lng.toFixed(4)}
                   </p>
                 </div>
               </Popup>

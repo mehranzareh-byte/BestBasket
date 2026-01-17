@@ -301,14 +301,22 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
               </div>
             ) : stores.length > 0 ? (
               <>
-                {viewMode === 'map' && userLocation ? (
-                  <div className="mb-6">
-                    <MapView
-                      stores={stores}
-                      userLocation={userLocation}
-                      currencySymbol={currencySymbol}
-                    />
-                  </div>
+                {viewMode === 'map' ? (
+                  userLocation ? (
+                    <div className="mb-6">
+                      <MapView
+                        stores={stores}
+                        userLocation={userLocation}
+                        currencySymbol={currencySymbol}
+                      />
+                    </div>
+                  ) : (
+                    <div className="mb-6 p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-yellow-800">
+                        ⚠️ Waiting for location... Please allow location access or wait for IP-based location detection.
+                      </p>
+                    </div>
+                  )
                 ) : null}
 
                 <div className={viewMode === 'map' ? 'grid gap-4 md:grid-cols-2' : 'grid gap-4 md:grid-cols-2'}>
@@ -353,6 +361,12 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
                           <MapPin className="h-4 w-4" />
                           <span>{store.distance} km away</span>
                         </div>
+                        {(store.latitude && store.longitude) && (
+                          <div className="flex items-center gap-2 text-xs text-gray-400">
+                            <MapPin className="h-3 w-3" />
+                            <span>📍 {store.latitude.toFixed(4)}, {store.longitude.toFixed(4)}</span>
+                          </div>
+                        )}
                         {store.isOpen && store.closingTime && (
                           <div className="flex items-center gap-2 text-gray-600">
                             <Clock className="h-4 w-4" />
