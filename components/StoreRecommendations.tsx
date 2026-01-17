@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { MapPin, Clock, DollarSign, Star, TrendingUp, Map, List } from 'lucide-react'
+import { MapPin, Clock, DollarSign, Star, TrendingUp, Map, List, RefreshCw } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { getLocationFromIP, type LocationData } from '@/lib/geolocation'
+import { findNearbyStores, type RealStore } from '@/lib/store-search'
 import dynamic from 'next/dynamic'
 
 // Dynamically import MapView to avoid SSR issues
@@ -46,7 +47,10 @@ interface StoreRecommendationsProps {
 
 export default function StoreRecommendations({ groceryList }: StoreRecommendationsProps) {
   const [stores, setStores] = useState<Store[]>([])
+  const [realStores, setRealStores] = useState<RealStore[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadingRealStores, setLoadingRealStores] = useState(false)
+  const [useRealStores, setUseRealStores] = useState(true) // Toggle between real and mock
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null)
   const [locationData, setLocationData] = useState<LocationData | null>(null)
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
@@ -87,6 +91,21 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
     }
   }, [])
 
+  // Fetch real stores from OpenStreetMap
+  const fetchRealStores = useCallback(async () => {
+    if (!userLocation) return
+
+    setLoadingRealStores(true)
+    try {
+      const stores = await findNearbyStores(userLocation.lat, userLocation.lng, 5000) // 5km radius
+      setRealStores(stores)
+    } catch (error) {
+      console.error('Error fetching real stores:', error)
+    } finally {
+      setLoadingRealStores(false)
+    }
+  }, [userLocation])
+
   const calculateRecommendations = useCallback(async () => {
     if (groceryList.length === 0) {
       return
@@ -97,10 +116,44 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
     }
 
     setLoading(true)
-    
-    // Simulate API call - in production, this would call your ML model
+
+    // If using real stores, convert them to Store format
+    if (useRealStores && realStores.length > 0) {
+      const convertedStores: Store[] = realStores.slice(0, 10).map((realStore, index) => {
+        // Calculate scores based on distance and mock quality/price (in production, use ML model)
+        const distanceScore = Math.max(0, 100 - (realStore.distance || 0) * 10)
+        const priceScore = 70 + Math.random() * 20 // Mock: 70-90
+        const qualityScore = 70 + Math.random() * 20 // Mock: 70-90
+
+        const totalScore =
+          (priceScore * preferences.priceWeight) / 100 +
+          (qualityScore * preferences.qualityWeight) / 100 +
+          (distanceScore * preferences.distanceWeight) / 100
+
+        return {
+          id: realStore.id,
+          name: realStore.name,
+          distance: realStore.distance || 0,
+          isOpen: true, // Assume open (in production, check opening hours)
+          priceScore: Math.round(priceScore),
+          qualityScore: Math.round(qualityScore),
+          totalScore: Math.round(totalScore),
+          estimatedTotal: groceryList.length * (8 + Math.random() * 5), // Mock estimate
+          closingTime: '22:00', // Mock
+          latitude: realStore.latitude,
+          longitude: realStore.longitude,
+          address: realStore.address,
+        }
+      })
+
+      convertedStores.sort((a, b) => b.totalScore - a.totalScore)
+      setStores(convertedStores)
+      setLoading(false)
+      return
+    }
+
+    // Fallback to mock stores if real stores not available
     setTimeout(() => {
-      // Mock store data with coordinates
       const baseLat = userLocation.lat
       const baseLng = userLocation.lng
       
@@ -163,13 +216,20 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
         },
       ]
 
-      // Sort by total score
       mockStores.sort((a, b) => b.totalScore - a.totalScore)
       setStores(mockStores)
       setLoading(false)
     }, 1500)
-  }, [groceryList, userLocation])
+  }, [groceryList, userLocation, useRealStores, realStores, preferences])
 
+  // Fetch real stores when location is available
+  useEffect(() => {
+    if (userLocation && useRealStores) {
+      fetchRealStores()
+    }
+  }, [userLocation, useRealStores, fetchRealStores])
+
+  // Calculate recommendations when stores or preferences change
   useEffect(() => {
     if (groceryList.length > 0 && userLocation) {
       calculateRecommendations()
@@ -194,35 +254,69 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
                   <DollarSign className="h-4 w-4" />
                   {locationData.currency} ({currencySymbol})
                 </span>
+                {useRealStores && (
+                  <span className="flex items-center gap-1 text-green-600">
+                    <MapPin className="h-4 w-4" />
+                    {realStores.length} real stores found
+                  </span>
+                )}
               </div>
             )}
           </div>
-          {stores.length > 0 && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
-                  viewMode === 'list'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <List className="h-4 w-4" />
-                List
-              </button>
-              <button
-                onClick={() => setViewMode('map')}
-                className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
-                  viewMode === 'map'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <Map className="h-4 w-4" />
-                Map
-              </button>
-            </div>
-          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setUseRealStores(!useRealStores)
+                if (!useRealStores && userLocation) {
+                  fetchRealStores()
+                }
+              }}
+              className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 text-sm ${
+                useRealStores
+                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+              disabled={loadingRealStores}
+            >
+              {loadingRealStores ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <MapPin className="h-4 w-4" />
+                  {useRealStores ? 'Real Stores' : 'Mock Stores'}
+                </>
+              )}
+            </button>
+            {stores.length > 0 && (
+              <>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                    viewMode === 'list'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <List className="h-4 w-4" />
+                  List
+                </button>
+                <button
+                  onClick={() => setViewMode('map')}
+                  className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                    viewMode === 'map'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <Map className="h-4 w-4" />
+                  Map
+                </button>
+              </>
+            )}
+          </div>
         </div>
         
         {groceryList.length === 0 ? (
