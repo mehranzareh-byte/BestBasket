@@ -24,10 +24,19 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+
   return (
     <html lang="en">
       <head>
         <link rel="manifest" href="/manifest.json" />
+        {googleMapsApiKey && (
+          <script
+            src={`https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&libraries=places`}
+            async
+            defer
+          />
+        )}
       </head>
       <body className={inter.className}>{children}</body>
     </html>
