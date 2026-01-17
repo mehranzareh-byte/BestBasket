@@ -4,7 +4,20 @@ import { useState, useEffect, useCallback } from 'react'
 import { MapPin, Clock, DollarSign, Star, TrendingUp, Map, List } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { getLocationFromIP, type LocationData } from '@/lib/geolocation'
-import MapView from './MapView'
+import dynamic from 'next/dynamic'
+
+// Dynamically import MapView to avoid SSR issues
+const MapView = dynamic(() => import('./MapView'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center">
+      <div className="text-center">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mb-2"></div>
+        <p className="text-gray-600">Loading map...</p>
+      </div>
+    </div>
+  ),
+})
 
 interface GroceryItem {
   id: string
