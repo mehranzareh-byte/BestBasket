@@ -5,6 +5,7 @@ import { MapPin, Clock, DollarSign, Star, TrendingUp, Map, List, RefreshCw } fro
 import { motion } from 'framer-motion'
 import { getLocationFromIP, type LocationData } from '@/lib/geolocation'
 import { findNearbyStores, type RealStore } from '@/lib/store-search'
+import { parseOpeningHours, isStoreOpenNow, getClosingTimeToday } from '@/lib/opening-hours'
 import dynamic from 'next/dynamic'
 
 // Dynamically import MapView to avoid SSR issues
@@ -91,20 +92,47 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
     }
   }, [])
 
-  // Fetch real stores from OpenStreetMap
+  // Fetch real stores from OpenStreetMap and save to database
   const fetchRealStores = useCallback(async () => {
     if (!userLocation) return
 
     setLoadingRealStores(true)
     try {
-      const stores = await findNearbyStores(userLocation.lat, userLocation.lng, 5000) // 5km radius
+      const stores = await findNearbyStores(userLocation.lat, userLocation.lng, 10000) // 10km radius for more stores
+      
+      // Save stores to database
+      for (const store of stores) {
+        try {
+          await fetch('/api/stores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              osmId: store.osmId,
+              name: store.name,
+              address: store.address,
+              latitude: store.latitude,
+              longitude: store.longitude,
+              phone: store.phone,
+              website: store.website,
+              openingHours: store.openingHours,
+              shopType: store.shopType,
+              city: store.city,
+              countryCode: store.countryCode,
+              currency: locationData?.currency || 'USD',
+            }),
+          })
+        } catch (err) {
+          // Silently fail - store might already exist
+        }
+      }
+      
       setRealStores(stores)
     } catch (error) {
       console.error('Error fetching real stores:', error)
     } finally {
       setLoadingRealStores(false)
     }
-  }, [userLocation])
+  }, [userLocation, locationData])
 
   const calculateRecommendations = useCallback(async () => {
     if (groceryList.length === 0) {
@@ -117,35 +145,108 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
 
     setLoading(true)
 
-    // If using real stores, convert them to Store format
+    // If using real stores, convert them to Store format with real data
     if (useRealStores && realStores.length > 0) {
-      const convertedStores: Store[] = realStores.slice(0, 10).map((realStore, index) => {
-        // Calculate scores based on distance and mock quality/price (in production, use ML model)
-        const distanceScore = Math.max(0, 100 - (realStore.distance || 0) * 10)
-        const priceScore = 70 + Math.random() * 20 // Mock: 70-90
-        const qualityScore = 70 + Math.random() * 20 // Mock: 70-90
+      // Fetch store data from database (price scores, quality scores, etc.)
+      const storePromises = realStores.slice(0, 50).map(async (realStore) => {
+        try {
+          // Get store data from database
+          const storeResponse = await fetch(`/api/stores?lat=${realStore.latitude}&lng=${realStore.longitude}&radius=0.1`)
+          const storeData = await storeResponse.json()
+          const dbStore = storeData.stores?.find((s: any) => s.osm_id === realStore.osmId)
 
-        const totalScore =
-          (priceScore * preferences.priceWeight) / 100 +
-          (qualityScore * preferences.qualityWeight) / 100 +
-          (distanceScore * preferences.distanceWeight) / 100
+          // Parse opening hours
+          let isOpen = true
+          let closingTime: string | undefined = undefined
+          if (realStore.openingHours) {
+            const hours = parseOpeningHours(realStore.openingHours)
+            const openStatus = isStoreOpenNow(hours)
+            isOpen = openStatus.isOpen
+            closingTime = openStatus.nextClose || getClosingTimeToday(hours) || undefined
+          }
 
-        return {
-          id: realStore.id,
-          name: realStore.name,
-          distance: realStore.distance || 0,
-          isOpen: true, // Assume open (in production, check opening hours)
-          priceScore: Math.round(priceScore),
-          qualityScore: Math.round(qualityScore),
-          totalScore: Math.round(totalScore),
-          estimatedTotal: groceryList.length * (8 + Math.random() * 5), // Mock estimate
-          closingTime: '22:00', // Mock
-          latitude: realStore.latitude,
-          longitude: realStore.longitude,
-          address: realStore.address,
+          // Get prices for grocery list items
+          let estimatedTotal = 0
+          let priceScore = dbStore?.price_score || 50
+          let qualityScore = dbStore?.quality_score || 50
+
+          if (dbStore?.id && groceryList.length > 0) {
+            try {
+              // Use the calculate-total API endpoint
+              const totalResponse = await fetch('/api/stores/calculate-total', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  storeId: dbStore.id,
+                  items: groceryList.map(item => item.name),
+                }),
+              })
+              
+              if (totalResponse.ok) {
+                const totalData = await totalResponse.json()
+                estimatedTotal = totalData.total || 0
+                
+                // Update price score based on how many items were found
+                if (totalData.itemsFound > 0) {
+                  const foundRatio = totalData.itemsFound / totalData.itemsTotal
+                  // Adjust price score based on data availability
+                  priceScore = Math.min(100, priceScore + (foundRatio * 10))
+                }
+              }
+            } catch (err) {
+              // Fallback estimate
+              estimatedTotal = groceryList.length * (priceScore / 10)
+            }
+          } else {
+            // Fallback estimate
+            estimatedTotal = groceryList.length * (priceScore / 10)
+          }
+
+          // Calculate distance score
+          const distanceScore = Math.max(0, 100 - (realStore.distance || 0) * 10)
+
+          // Calculate total score
+          const totalScore =
+            (priceScore * preferences.priceWeight) / 100 +
+            (qualityScore * preferences.qualityWeight) / 100 +
+            (distanceScore * preferences.distanceWeight) / 100
+
+          return {
+            id: realStore.id,
+            name: realStore.name,
+            distance: realStore.distance || 0,
+            isOpen,
+            priceScore: Math.round(priceScore),
+            qualityScore: Math.round(qualityScore),
+            totalScore: Math.round(totalScore),
+            estimatedTotal: Math.round(estimatedTotal * 100) / 100,
+            closingTime,
+            latitude: realStore.latitude,
+            longitude: realStore.longitude,
+            address: realStore.address,
+          }
+        } catch (error) {
+          console.error('Error processing store:', error)
+          // Return basic store data
+          const distanceScore = Math.max(0, 100 - (realStore.distance || 0) * 10)
+          return {
+            id: realStore.id,
+            name: realStore.name,
+            distance: realStore.distance || 0,
+            isOpen: true,
+            priceScore: 50,
+            qualityScore: 50,
+            totalScore: Math.round(distanceScore * preferences.distanceWeight / 100),
+            estimatedTotal: groceryList.length * 5,
+            closingTime: undefined,
+            latitude: realStore.latitude,
+            longitude: realStore.longitude,
+            address: realStore.address,
+          }
         }
       })
 
+      const convertedStores = await Promise.all(storePromises)
       convertedStores.sort((a, b) => b.totalScore - a.totalScore)
       setStores(convertedStores)
       setLoading(false)
@@ -397,7 +498,7 @@ export default function StoreRecommendations({ groceryList }: StoreRecommendatio
               <>
                 {viewMode === 'map' ? (
                   userLocation ? (
-                    <div className="mb-6">
+                    <div className="mb-6" style={{ height: '600px' }}>
                       <MapView
                         stores={stores}
                         userLocation={userLocation}

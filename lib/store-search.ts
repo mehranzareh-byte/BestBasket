@@ -5,12 +5,18 @@
 
 export interface RealStore {
   id: string
+  osmId?: string
   name: string
   latitude: number
   longitude: number
   address?: string
   shopType?: string
   distance?: number
+  openingHours?: string // OSM opening_hours format
+  phone?: string
+  website?: string
+  city?: string
+  countryCode?: string
 }
 
 /**
@@ -20,15 +26,15 @@ export interface RealStore {
 export async function findNearbyStores(
   lat: number,
   lng: number,
-  radius: number = 2000 // 2km radius
+  radius: number = 5000 // 5km radius - increased to get more stores
 ): Promise<RealStore[]> {
-  // Overpass API query to find supermarkets and grocery stores
+  // Enhanced Overpass API query to find supermarkets and grocery stores with more details
   const query = `
-[out:json][timeout:25];
+[out:json][timeout:30];
 (
-  node["shop"~"^(supermarket|grocery|convenience|mall)$"](around:${radius},${lat},${lng});
-  way["shop"~"^(supermarket|grocery|convenience|mall)$"](around:${radius},${lat},${lng});
-  relation["shop"~"^(supermarket|grocery|convenience|mall)$"](around:${radius},${lat},${lng});
+  node["shop"~"^(supermarket|grocery|convenience|mall|department_store|hypermarket)$"](around:${radius},${lat},${lng});
+  way["shop"~"^(supermarket|grocery|convenience|mall|department_store|hypermarket)$"](around:${radius},${lat},${lng});
+  relation["shop"~"^(supermarket|grocery|convenience|mall|department_store|hypermarket)$"](around:${radius},${lat},${lng});
 );
 out body;
 >;
@@ -86,32 +92,44 @@ out skel qt;
       }
 
       // Get store name
-      const name = element.tags?.name || element.tags?.['name:en'] || 'Unnamed Store'
+      const name = element.tags?.name || element.tags?.['name:en'] || element.tags?.['name:local'] || 'Unnamed Store'
+
+      // Skip unnamed stores
+      if (name === 'Unnamed Store') continue
 
       // Build address
       const addressParts = []
-      if (element.tags?.['addr:street']) {
-        addressParts.push(element.tags['addr:street'])
-      }
       if (element.tags?.['addr:housenumber']) {
         addressParts.push(element.tags['addr:housenumber'])
+      }
+      if (element.tags?.['addr:street']) {
+        addressParts.push(element.tags['addr:street'])
       }
       if (element.tags?.['addr:city']) {
         addressParts.push(element.tags['addr:city'])
       }
-      const address = addressParts.length > 0 ? addressParts.join(' ') : undefined
+      if (element.tags?.['addr:postcode']) {
+        addressParts.push(element.tags['addr:postcode'])
+      }
+      const address = addressParts.length > 0 ? addressParts.join(', ') : undefined
 
       // Calculate distance from user location
       const distance = calculateDistance(lat, lng, storeLat, storeLng)
 
       stores.push({
         id: element.id.toString(),
+        osmId: element.id.toString(),
         name,
         latitude: storeLat,
         longitude: storeLng,
         address,
         shopType: element.tags?.shop || 'store',
         distance: Math.round(distance * 10) / 10, // Round to 1 decimal
+        openingHours: element.tags?.['opening_hours'] || undefined,
+        phone: element.tags?.['phone'] || element.tags?.['contact:phone'] || undefined,
+        website: element.tags?.['website'] || element.tags?.['contact:website'] || undefined,
+        city: element.tags?.['addr:city'] || undefined,
+        countryCode: element.tags?.['addr:country'] || undefined,
       })
 
       processedIds.add(element.id.toString())
@@ -120,7 +138,7 @@ out skel qt;
     // Sort by distance
     stores.sort((a, b) => (a.distance || 0) - (b.distance || 0))
 
-    return stores.slice(0, 20) // Return top 20 closest stores
+    return stores.slice(0, 50) // Return top 50 closest stores (increased from 20)
   } catch (error) {
     console.error('Error fetching stores from Overpass API:', error)
     return []

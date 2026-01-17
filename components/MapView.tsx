@@ -112,16 +112,18 @@ export default function MapView({ stores, userLocation, currencySymbol, onStoreC
   }
 
   return (
-    <div className="w-full h-full min-h-[400px] rounded-lg overflow-hidden border border-gray-200">
+    <div className="w-full h-full min-h-[500px] rounded-lg overflow-hidden border border-gray-200 shadow-lg">
       <MapContainer
         center={[userLocation.lat, userLocation.lng]}
-        zoom={13}
+        zoom={12}
         style={{ height: '100%', width: '100%', zIndex: 0 }}
         scrollWheelZoom={true}
+        zoomControl={true}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          maxZoom={19}
         />
         
         {/* User location marker */}

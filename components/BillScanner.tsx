@@ -178,10 +178,58 @@ export default function BillScanner() {
               </div>
 
               <button
-                onClick={() => {
-                  // In production, save to database
-                  alert('Receipt data saved! This will help improve our recommendations.')
-                  setExtractedData(null)
+                onClick={async () => {
+                  try {
+                    // Find or create store
+                    let storeId = null
+                    if (extractedData.store && extractedData.store !== 'Unknown Store') {
+                      // Try to find store by name
+                      const storeResponse = await fetch(`/api/stores?lat=0&lng=0&radius=1000`)
+                      const storeData = await storeResponse.json()
+                      const foundStore = storeData.stores?.find((s: any) => 
+                        s.name.toLowerCase().includes(extractedData.store.toLowerCase())
+                      )
+                      
+                      if (foundStore) {
+                        storeId = foundStore.id
+                      }
+                    }
+
+                    // Save bill
+                    const billResponse = await fetch('/api/bills', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        store_name: extractedData.store,
+                        items: extractedData.items,
+                        total: extractedData.total,
+                        date: extractedData.date,
+                      }),
+                    })
+
+                    if (billResponse.ok && storeId) {
+                      // Save prices for each item
+                      for (const item of extractedData.items) {
+                        await fetch(`/api/stores/${storeId}/prices`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            productName: item.name,
+                            price: item.price,
+                            currency: 'USD', // Will be updated based on location
+                            dateRecorded: extractedData.date,
+                            source: 'bill_scan',
+                          }),
+                        })
+                      }
+                    }
+
+                    alert('Receipt data saved! This will help improve our recommendations.')
+                    setExtractedData(null)
+                  } catch (error) {
+                    console.error('Error saving receipt:', error)
+                    alert('Error saving receipt. Please try again.')
+                  }
                 }}
                 className="w-full mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
               >
